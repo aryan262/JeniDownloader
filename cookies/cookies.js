@@ -177,6 +177,6 @@ const agentOptions = {
     maxRedirections: 0,
 };
 
-const agent = ytdl.createAgent(cookies, agentOptions);
+const agent = ytdl.createAgent(cookies);
 
 module.exports =  { agent }
