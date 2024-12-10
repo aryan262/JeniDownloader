@@ -1,0 +1,68 @@
+const express = require('express');
+const { VerifyVideo } = require('../../middleware');
+const ytdl = require('@distube/ytdl-core');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegStatic = require("ffmpeg-static");
+const cp = require("child_process");
+
+ffmpeg.setFfmpegPath(ffmpegStatic);
+
+const Video = express.Router();
+
+Video.post('/', VerifyVideo, (req, res) => {
+    const { contentLength, link, duration } = req.body;
+    const { totalSize } = req;
+
+    // Set response headers for MPEG format
+    res.setHeader('Content-disposition', 'attachment; filename=merged.mpg');
+    res.setHeader('Content-type', 'video/mpeg');
+
+    const Video = ytdl(link, {
+        filter: (video) => video.contentLength === contentLength,
+    });
+
+    const Audio = ytdl(link, {
+        filter: (format) => format.audioQuality === "AUDIO_QUALITY_MEDIUM",
+    });
+
+    let convertedSize = 0;
+    const ffmpegProcess = cp.spawn(
+        ffmpegStatic,
+        [
+            '-loglevel', '8',
+            '-hide_banner',
+            '-i', 'pipe:3',
+            '-i', 'pipe:4',
+            '-t', duration,
+            '-map', '0:a',
+            '-map', '1:v',
+            '-c:v', 'mpeg2video', // Use MPEG-2 for video codec
+            '-b:v', '2M',        // Set video bitrate (adjust as needed)
+            '-q:v', '2',         // Set video quality (lower is better)
+            '-c:a', 'mp2',       // Use MPEG-1 Layer II for audio codec
+            '-b:a', '192k',      // Set audio bitrate (adjust as needed)
+            '-ar', '44100',      // Set audio sample rate
+            '-preset', 'medium', // Use a higher quality preset
+            '-f', 'mpeg',
+            'pipe:5',
+        ],
+        {
+            windowsHide: true,
+            stdio: ["inherit", "inherit", "inherit", "pipe", "pipe", "pipe"],
+        }
+    );
+
+    Video.pipe(ffmpegProcess.stdio[4]);
+    Audio.pipe(ffmpegProcess.stdio[3]);
+
+    ffmpegProcess.stdio[5].on('data', (chunk) => {
+        convertedSize += chunk.length;
+        const left = totalSize - convertedSize;
+        const leftSize = left > 0 ? left : 0;
+        console.log(`Converted: ${convertedSize} bytes, Left: ${leftSize} bytes, Total: ${totalSize}`);
+    });
+
+    ffmpegProcess.stdio[5].pipe(res);
+});
+
+module.exports = Video;
